@@ -29,15 +29,17 @@ Two operating modes are planned:
 Wraps an external binary as a black box. On each tab press, the `Completer` calls `binary __completeNoDesc <tokens>` and parses the output. On enter, the `Executor` runs `binary <tokens>` with inherited stdin/stdout/stderr. Empty input is a no-op. Ctrl-C sends SIGINT to the child only; Ctrl-D exits the shell.
 
 ### 2. Embedded mode (`NewEmbedded`)
-Operates in-process by accepting a `*cobra.Command` tree directly. Allows shared memory state (DB handles, caches) and dynamic completions sourced from live data. Milestone 6 — lower priority than the subprocess path.
+Operates in-process by accepting a `*cobra.Command` tree directly. Allows shared memory state (DB handles, caches) and dynamic completions sourced from live data. Completion walks the tree via `cobra.Command.Traverse`; calls `ValidArgsFunction` and `DynamicCompletions`. Flags are reset to defaults via `resetCommandTree` before each `Execute()` call.
 
 ### Core types
 
 - **`Config`** — `BinaryPath` (resolved to abs path at `New()`), `Prompt`, `HistoryFile` (default `~/.{basename}_history`), `Env` (additive to inherited env), `Hooks`
 - **`Shell`** — holds the readline instance, Completer, Executor, and History
 - **`Hooks`** — `BeforeExec func([]string) error` (non-nil cancels + prints reason), `AfterExec`, `OnStart`, `OnExit`
-- **`EmbeddedConfig`** — `RootCmd *cobra.Command`, `Prompt`, `DynamicCompletions map[string]CompletionFunc`
+- **`EmbeddedConfig`** — `RootCmd *cobra.Command`, `Prompt`, `DynamicCompletions map[string]CompletionFunc`, `Hooks EmbeddedHooks`
+- **`EmbeddedHooks`** — same shape as `Hooks` but `OnStart func(*EmbeddedShell)`; separate type because the two shell types are not interchangeable
 - **`CompletionFunc`** — `func(args []string, toComplete string) []string`, mirrors Cobra's `ValidArgsFunction`
+- **`resetCommandTree`** — walks the command tree resetting all `pflag.Flag` values to `DefValue` and clearing `Changed`; called before each embedded `Execute()`
 
 ### Cobra `__complete` / `__completeNoDesc` protocol
 

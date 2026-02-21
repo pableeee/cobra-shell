@@ -144,6 +144,40 @@ PTY allocation is deferred to a future release (see [ADR-003](adr/003-no-pty-v1.
 - **No PTY.** Interactive subcommands (`vim`, `less`, `ssh`) do not work correctly.
 - **No aliasing or multi-line input.**
 
+## Embedded mode
+
+For CLIs that want to share in-process state (DB handles, caches) across
+commands, use `NewEmbedded` instead of `New`. Commands run in the same process
+via `cobra.Command.Execute`; completion walks the command tree directly rather
+than spawning a subprocess.
+
+```go
+sh := cobrashell.NewEmbedded(cobrashell.EmbeddedConfig{
+    RootCmd: rootCmd,
+    Prompt:  "myapp> ",
+    DynamicCompletions: map[string]cobrashell.CompletionFunc{
+        // Live completions sourced from in-process state.
+        "show": func(args []string, toComplete string) []string {
+            return db.ListIDs(toComplete)
+        },
+    },
+    Hooks: cobrashell.EmbeddedHooks{
+        OnStart: func(sh *cobrashell.EmbeddedShell) {
+            fmt.Println("Connected. Type 'exit' to quit.")
+        },
+    },
+})
+if err := sh.Run(); err != nil {
+    log.Fatal(err)
+}
+```
+
+Completion sources (in order): static subcommand names → `DynamicCompletions`
+→ `ValidArgsFunction` on the matched command → flag names.
+
+Flag state is reset to defaults between commands so that flags from one run do
+not bleed into the next.
+
 ## Architecture
 
 See [DESIGN.md](DESIGN.md) for the full design rationale and [adr/](adr/) for architectural decision records.
