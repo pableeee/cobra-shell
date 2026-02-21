@@ -23,9 +23,10 @@ const (
 // Shell wraps a Cobra binary in an interactive readline loop. Create one with
 // [New] and start it with [Run].
 type Shell struct {
-	cfg     Config
-	binary  string // resolved absolute path; empty when initErr is set
-	initErr error  // deferred error from New, returned by Run
+	cfg        Config
+	binary     string            // resolved absolute path; empty when initErr is set
+	initErr    error             // deferred error from New, returned by Run
+	sessionEnv map[string]string // runtime env overrides; set via SetEnv/UnsetEnv
 }
 
 // New creates a Shell from cfg. BinaryPath is resolved to an absolute path
@@ -43,6 +44,7 @@ func New(cfg Config) *Shell {
 		return s
 	}
 	s.binary = binary
+	s.sessionEnv = make(map[string]string)
 
 	if cfg.Prompt == "" {
 		cfg.Prompt = defaultPrompt
@@ -132,6 +134,12 @@ func (s *Shell) execute(line string) {
 		return
 	}
 
+	// The env built-in is handled entirely in-process; it does not invoke the
+	// binary and does not trigger BeforeExec/AfterExec hooks.
+	if s.handleEnvBuiltin(tokens) {
+		return
+	}
+
 	if s.cfg.Hooks.BeforeExec != nil {
 		if err := s.cfg.Hooks.BeforeExec(tokens); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -143,7 +151,7 @@ func (s *Shell) execute(line string) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), s.cfg.Env...)
+	cmd.Env = s.buildEnv()
 
 	// Suppress SIGINT in this process while the child runs. The terminal
 	// delivers SIGINT to the entire foreground process group, so the child

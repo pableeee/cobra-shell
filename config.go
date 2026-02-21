@@ -49,6 +49,17 @@ type Config struct {
 	// a higher value. Defaults to 500ms.
 	CompletionTimeout time.Duration
 
+	// EnvBuiltin, when non-empty, enables a built-in command for managing
+	// session-scoped environment variables. The value becomes the command
+	// name (e.g. "env"). Supported subcommands: list, set KEY VALUE, unset KEY.
+	//
+	// The built-in is intercepted before the binary is spawned, so it works
+	// even for binaries that have their own "env" subcommand — simply choose
+	// a name that does not conflict.
+	//
+	// Defaults to "" (disabled).
+	EnvBuiltin string
+
 	// Hooks contains optional lifecycle callbacks. All fields are optional;
 	// nil hooks are silently skipped.
 	Hooks Hooks

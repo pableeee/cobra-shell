@@ -33,13 +33,19 @@ Operates in-process by accepting a `*cobra.Command` tree directly. Allows shared
 
 ### Core types
 
-- **`Config`** — `BinaryPath` (resolved to abs path at `New()`), `Prompt`, `HistoryFile` (default `~/.{basename}_history`), `Env` (additive to inherited env), `Hooks`
-- **`Shell`** — holds the readline instance, Completer, Executor, and History
+- **`Config`** — `BinaryPath` (resolved to abs path at `New()`), `Prompt`, `HistoryFile` (default `~/.{basename}_history`), `Env` (additive to inherited env), `EnvBuiltin` (opt-in env built-in name, default `""`), `Hooks`
+- **`Shell`** — holds the readline instance, Completer, Executor, History, and `sessionEnv map[string]string`
 - **`Hooks`** — `BeforeExec func([]string) error` (non-nil cancels + prints reason), `AfterExec`, `OnStart`, `OnExit`
 - **`EmbeddedConfig`** — `RootCmd *cobra.Command`, `Prompt`, `DynamicCompletions map[string]CompletionFunc`, `Hooks EmbeddedHooks`
 - **`EmbeddedHooks`** — same shape as `Hooks` but `OnStart func(*EmbeddedShell)`; separate type because the two shell types are not interchangeable
 - **`CompletionFunc`** — `func(args []string, toComplete string) []string`, mirrors Cobra's `ValidArgsFunction`
 - **`resetCommandTree`** — walks the command tree resetting all `pflag.Flag` values to `DefValue` and clearing `Changed`; called before each embedded `Execute()`
+
+### Session environment variables (subprocess mode only)
+
+`Shell.SetEnv(key, value)` / `Shell.UnsetEnv(key)` / `Shell.SessionEnv() []string` manage a `map[string]string` on `Shell`. `buildEnv()` merges three layers at spawn time: `os.Environ()` < `Config.Env` < `sessionEnv` (last value wins in `Cmd.Env`). `os.Setenv` is never called.
+
+When `Config.EnvBuiltin` is non-empty (e.g. `"env"`), the named command is intercepted in `execute()` **before** `BeforeExec` and before spawning the binary. Subcommands: `list`, `set KEY VALUE`, `unset KEY`. The completer intercepts the same token in `Do()` to provide subcommand and key candidates. Embedded mode does not expose session env.
 
 ### Cobra `__complete` / `__completeNoDesc` protocol
 

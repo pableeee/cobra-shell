@@ -96,6 +96,49 @@ cobra-shell --binary gh
 cobra-shell --binary ./myapp --timeout 2s
 ```
 
+## Session environment variables
+
+Many CLI tools use environment variables for credentials or configuration.
+cobra-shell lets you manage these at the prompt without restarting the shell.
+
+Enable the built-in by setting `Config.EnvBuiltin`:
+
+```go
+sh := cobrashell.New(cobrashell.Config{
+    BinaryPath: "/usr/local/bin/heroku",
+    Prompt:     "heroku> ",
+    EnvBuiltin: "env",
+})
+```
+
+Inside the shell:
+
+```
+heroku> env set HEROKU_API_TOKEN secret123
+heroku> env list
+HEROKU_API_TOKEN=secret123
+heroku> heroku apps          # token is injected into the subprocess
+heroku> env unset HEROKU_API_TOKEN
+```
+
+Session variables are merged into the subprocess environment at spawn time,
+with precedence over `os.Environ()` and `Config.Env`. `os.Setenv` is never
+called — the current process is unaffected.
+
+Tab-completion is available for `env list`, `env set`, and `env unset KEY`
+(keys from the current session are offered).
+
+You can also manage session env programmatically:
+
+```go
+sh.SetEnv("MY_TOKEN", token)
+sh.UnsetEnv("MY_TOKEN")
+pairs := sh.SessionEnv() // sorted ["KEY=VALUE", ...]
+```
+
+> **Note:** Session env is a subprocess-mode feature. Embedded mode does not
+> expose it because in-process commands share the same OS environment.
+
 ## Configuration
 
 | Field | Type | Default | Description |
@@ -105,6 +148,7 @@ cobra-shell --binary ./myapp --timeout 2s
 | `HistoryFile` | `string` | `~/.<binary>_history` | File for persistent command history. |
 | `Env` | `[]string` | `nil` | Extra environment variables (`"KEY=VALUE"`), additive to the current environment. |
 | `CompletionTimeout` | `time.Duration` | `500ms` | Maximum time to wait for `__completeNoDesc`. Increase for network-backed binaries. |
+| `EnvBuiltin` | `string` | `""` | When non-empty, enables the built-in env management command with this name. |
 | `Hooks` | `Hooks` | — | Lifecycle callbacks; all fields optional. |
 
 ## Keyboard shortcuts

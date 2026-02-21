@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -57,6 +56,11 @@ func (c *completer) Do(line []rune, pos int) (newLine [][]rune, length int) {
 		toComplete = tokens[len(tokens)-1]
 	}
 
+	// Intercept the env built-in before delegating to the binary.
+	if c.shell.cfg.EnvBuiltin != "" && len(contextArgs) >= 1 && contextArgs[0] == c.shell.cfg.EnvBuiltin {
+		return c.doEnvBuiltin(contextArgs[1:], toComplete)
+	}
+
 	candidates, directive := c.complete(contextArgs, toComplete)
 	if directive&compDirectiveError != 0 || len(candidates) == 0 {
 		return nil, 0
@@ -92,7 +96,7 @@ func (c *completer) tryComplete(contextArgs []string, toComplete string) (candid
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, c.shell.binary, args...)
-	cmd.Env = append(os.Environ(), c.shell.cfg.Env...)
+	cmd.Env = c.shell.buildEnv()
 	cmd.Stderr = io.Discard
 
 	var buf bytes.Buffer
@@ -142,4 +146,40 @@ func parseCompletions(output string) (candidates []string, directive int) {
 
 	// No directive line found — binary may not support __completeNoDesc.
 	return nil, 0
+}
+
+// doEnvBuiltin provides tab-completion for the session env built-in command.
+// subArgs contains the tokens after the built-in name; toComplete is the
+// partial word being completed.
+//
+// Completion sources:
+//   - No subArgs: offer "list", "set", "unset" filtered by toComplete prefix.
+//   - subArgs[0] == "unset": offer current session keys filtered by prefix.
+//   - All other cases: no candidates.
+func (c *completer) doEnvBuiltin(subArgs []string, toComplete string) (newLine [][]rune, length int) {
+	var candidates []string
+
+	switch {
+	case len(subArgs) == 0:
+		for _, name := range []string{"list", "set", "unset"} {
+			if strings.HasPrefix(name, toComplete) {
+				candidates = append(candidates, name)
+			}
+		}
+	case subArgs[0] == "unset" && len(subArgs) == 1:
+		for _, key := range envBuiltinKeys(c.shell.SessionEnv()) {
+			if strings.HasPrefix(key, toComplete) {
+				candidates = append(candidates, key)
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, 0
+	}
+	result := make([][]rune, len(candidates))
+	for i, s := range candidates {
+		result[i] = []rune(s)
+	}
+	return result, len([]rune(toComplete))
 }
