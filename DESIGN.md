@@ -1,7 +1,7 @@
 # cobra-shell: A Generic Interactive Shell for Cobra CLIs
 
 **Date:** 2026-02-21
-**Status:** Draft / Exploration
+**Status:** Final
 
 ---
 
@@ -34,29 +34,47 @@ Build a standalone Go library (and optional binary) that wraps **any Cobra CLI**
 
 ## Cobra Completion Protocol
 
-Cobra injects a hidden `__complete` command into every binary. It accepts the current argument list and returns completions on stdout:
+Cobra injects two hidden commands into every binary: `__complete` (with descriptions) and `__completeNoDesc` (without). They accept the full token list the user has typed so far, with the **last token being the partial word being completed**. Each token is a separate argument — not a single quoted string.
 
 ```
-$ mybinary __complete "sub"
+# User typed: mybinary sub[TAB]
+$ mybinary __completeNoDesc sub
 subcommand1
 subcommand2
 :4
-Completion ended with directive: ShellCompDirectiveNoFileComp
+
+# User typed: mybinary sub [TAB]  (trailing space → empty partial)
+$ mybinary __completeNoDesc sub ""
+subcommand1
+subcommand2
+:4
 ```
 
-The last line is always `:N` where N is a `ShellCompDirective` bitmask:
+`__complete` returns the same but with optional tab-separated descriptions on each completion line:
 
-| Bit | Name | Meaning |
-|-----|------|---------|
-| 0 | `Default` | Let the shell also complete files |
-| 1 | `NoSpace` | Don't append a space after the completion |
-| 2 | `NoFileComp` | Suppress file completions |
-| 4 | `FilterFileExt` | Only complete files with given extensions |
-| 8 | `FilterDirs` | Only complete directories |
-| 16 | `KeepOrder` | Preserve completion order |
-| 32 | `Error` | An error occurred; suppress completions |
+```
+subcommand1	does the first thing
+subcommand2	does the second thing
+:4
+```
 
-Parsing this is sufficient to drive a fully functional tab-completion system without any knowledge of the binary's internals.
+**We use `__completeNoDesc`** because readline has no UI for displaying per-completion descriptions, so stripping them is both simpler and avoids parsing the tab separator.
+
+Cobra performs **server-side prefix filtering**: it only returns completions that match the partial word, so the client never needs to filter the result set.
+
+The final line is always `:N` where N is a `ShellCompDirective` bitmask. The values (defined as `1 << iota` starting from 1) are:
+
+| Value | Name | Meaning |
+|-------|------|---------|
+| 0 | `Default` | Allow file completion as fallback |
+| 1 | `Error` | Completion failed; suppress results |
+| 2 | `NoSpace` | Don't append a space after the completion |
+| 4 | `NoFileComp` | Suppress file completion fallback |
+| 8 | `FilterFileExt` | Only complete files with given extensions |
+| 16 | `FilterDirs` | Only complete directories |
+| 32 | `KeepOrder` | Preserve completion order |
+
+Parsing this output is sufficient to drive a fully functional tab-completion system without any knowledge of the binary's internals.
 
 ---
 
@@ -67,15 +85,16 @@ Parsing this is sufficient to drive a fully functional tab-completion system wit
 │                        cobra-shell                         │
 │                                                            │
 │  Config                                                    │
-│  ├── BinaryPath  string                                    │
-│  ├── Prompt      string         (default: "> ")            │
-│  ├── HistoryFile string         (default: ~/.binary_hist)  │
-│  ├── Env         []string       (extra env vars)           │
-│  └── Hooks       Hooks          (see below)                │
+│  ├── BinaryPath         string        (abs path at New())  │
+│  ├── Prompt             string        (default: "> ")      │
+│  ├── HistoryFile        string        (default: see below) │
+│  ├── Env                []string      (additive to env)    │
+│  ├── CompletionTimeout  time.Duration (default: 500ms)     │
+│  └── Hooks              Hooks         (see below)          │
 │                                                            │
 │  Shell                                                     │
 │  ├── readline instance (github.com/chzyer/readline)        │
-│  ├── Completer  → calls binary __complete                  │
+│  ├── Completer  → calls binary __completeNoDesc            │
 │  ├── Executor   → calls binary <args>, streams output      │
 │  └── History    → persisted to file                        │
 └────────────────────────────────────────────────────────────┘
@@ -83,29 +102,34 @@ Parsing this is sufficient to drive a fully functional tab-completion system wit
 
 ### Completer
 
-On every tab press, the completer:
+`chzyer/readline` calls the completer with `(line []rune, pos int)` — the full line and cursor position. On every tab press, the completer:
 
-1. Splits the current line into tokens.
-2. Calls `exec.Command(binary, append([]string{"__complete"}, tokens...)...)`.
-3. Parses the output: lines before `:N` are candidates; the directive controls file fallback.
-4. Returns the candidates to readline.
-
-The call is made with a short timeout (default 500 ms) to avoid stalling on slow binaries.
+1. Truncates the line to the cursor position (`line[:pos]`).
+2. Tokenizes the truncated line using `github.com/google/shlex` (handles single/double quotes and backslash escapes). The last token is `toComplete` (the partial word); all preceding tokens are the context args. If the line ends with whitespace, `toComplete` is an empty string.
+3. Calls `exec.Command(binary, append([]string{"__completeNoDesc"}, append(contextArgs, toComplete)...)...)` under a `context.WithTimeout` of `Config.CompletionTimeout` (default 500 ms).
+4. Reads stdout, discards the trailing `:N` directive line, and collects the remaining lines as candidates.
+5. Checks the directive: if `Error` bit is set, returns no candidates. If `Default` bit is set (file fallback allowed), may augment with filesystem completions.
+6. Returns the candidates to readline, along with the length of `toComplete` so readline knows how much of the line to replace.
 
 ### Executor
 
 On enter:
 
-1. Tokenizes the input (respecting quotes).
-2. Runs `exec.Command(binary, tokens...)` with stdin/stdout/stderr inherited from the terminal.
-3. Waits for exit. Non-zero exit codes are printed but do not terminate the shell.
+1. If the input is empty or whitespace-only, it is a no-op (no subprocess, no history entry).
+2. Tokenizes the input with `github.com/google/shlex` (same library as the completer, consistent quoting semantics).
+3. Runs `exec.Command(binary, tokens...)` with stdin/stdout/stderr inherited from the terminal.
+4. Waits for exit. Non-zero exit codes are printed but do not terminate the shell.
+
+**Signal handling:** Ctrl-C while a command is running sends SIGINT to the child process only; it does not exit the shell. Ctrl-C at an empty prompt clears the line (readline default). Ctrl-D at an empty prompt exits the shell.
 
 ### Hooks
 
 ```go
 type Hooks struct {
-    // Called before executing a command. Return false to cancel.
-    BeforeExec func(args []string) bool
+    // Called before executing a command.
+    // Return a non-nil error to cancel execution; the error message is printed to the user.
+    // Return nil to proceed.
+    BeforeExec func(args []string) error
 
     // Called after executing a command with its exit code.
     AfterExec func(args []string, exitCode int)
@@ -118,7 +142,7 @@ type Hooks struct {
 }
 ```
 
-Hooks allow the caller to inject stateful behavior (e.g., updating a status line, logging, injecting auth tokens) without the library knowing anything about the domain.
+Hooks allow the caller to inject stateful behavior (e.g., updating a status line, logging, injecting auth tokens) without the library knowing anything about the domain. Using `error` for `BeforeExec` (rather than `bool`) lets the hook surface a reason to the user when cancelling — e.g., `"auth token expired, run login first"`.
 
 ---
 
@@ -127,16 +151,20 @@ Hooks allow the caller to inject stateful behavior (e.g., updating a status line
 ### Minimal usage (library mode)
 
 ```go
-import "github.com/you/cobra-shell"
+import "github.com/pable/cobra-shell"
 
 func main() {
     sh := cobrashell.New(cobrashell.Config{
         BinaryPath: "/usr/local/bin/mybinary",
         Prompt:     "mybinary> ",
     })
-    sh.Run()
+    if err := sh.Run(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
+
+`Run()` returns an `error` if initialisation fails (binary not found, readline setup failure, history file unwritable). It returns `nil` on a clean exit.
 
 ### With hooks
 
@@ -146,6 +174,12 @@ sh := cobrashell.New(cobrashell.Config{
     Prompt:      "myapp> ",
     HistoryFile: filepath.Join(os.UserHomeDir(), ".myapp_history"),
     Hooks: cobrashell.Hooks{
+        BeforeExec: func(args []string) error {
+            if !auth.TokenValid() {
+                return fmt.Errorf("auth token expired — run 'login' first")
+            }
+            return nil
+        },
         AfterExec: func(args []string, code int) {
             if code != 0 {
                 fmt.Printf("[exit %d]\n", code)
@@ -168,6 +202,8 @@ rootCmd.AddCommand(cobrashell.Command(cobrashell.Config{
 ```
 
 This is the pattern used in `go-cs-metrics` today, but it would be a one-liner instead of ~100 lines of custom code.
+
+`New()` resolves `BinaryPath` to an absolute path immediately (via `exec.LookPath` if it has no path separator, otherwise `filepath.Abs`). This makes `os.Args[0]` safe even if the CWD changes during the shell session.
 
 ### Standalone binary
 
@@ -210,10 +246,15 @@ sh := cobrashell.NewEmbedded(cobrashell.EmbeddedConfig{
     RootCmd: rootCmd, // *cobra.Command
     Prompt:  "myapp> ",
     DynamicCompletions: map[string]cobrashell.CompletionFunc{
-        "show": func() []string { return db.ListHashPrefixes() },
+        // Signature matches Cobra's ValidArgsFunction for consistency.
+        "show": func(args []string, toComplete string) []string {
+            return db.ListHashPrefixes()
+        },
     },
 })
 ```
+
+`CompletionFunc` is `func(args []string, toComplete string) []string`, mirroring Cobra's own `ValidArgsFunction` signature. `args` contains the tokens already accepted; `toComplete` is the partial word. This gives dynamic completions enough context to filter or generate values meaningfully.
 
 This embedded mode is how `go-cs-metrics`'s current shell works; the library would just formalize it.
 
@@ -224,18 +265,9 @@ This embedded mode is how `go-cs-metrics`'s current shell works; the library wou
 - Piping between commands (`list | grep foo`) — requires a real shell parser
 - Aliasing / macro recording
 - Multi-line input
-- PTY allocation for interactive subcommands (e.g. `vim`, `less`)
+- PTY allocation — covers both color output (some binaries disable color when stdout is not a TTY) and interactive subcommands (e.g. `vim`, `less`). Workaround for color: set `FORCE_COLOR=1` or equivalent via `Config.Env`. PTY via `github.com/creack/pty` is deferred because it triggers pager launches, complicates signal forwarding, and conflicts with the Unix-only scope.
+- Windows support — `__complete` is cross-platform but `chzyer/readline` and Unix signal semantics are not. Scoped to Unix for v1.
 - Non-Cobra CLIs beyond the `--help` fallback
-
----
-
-## Open Questions
-
-1. **Completion timeout**: 500 ms default — is this right for slow binaries (e.g., those that hit a network)?
-2. **Token splitting**: needs to handle single/double quotes, backslash escapes. Use `github.com/google/shlex` or roll minimal parser?
-3. **PTY for color output**: some binaries detect non-TTY stdout and disable color. Should we allocate a PTY for the subprocess? `github.com/creack/pty` would handle this but adds complexity.
-4. **Windows support**: `__complete` works cross-platform; readline is trickier on Windows. Scope to Unix for v1?
-5. **Module path**: `github.com/pable/cobra-shell`? Pick a name before wiring up examples.
 
 ---
 
@@ -245,10 +277,10 @@ This embedded mode is how `go-cs-metrics`'s current shell works; the library wou
 |---|-----------|-------------|
 | 1 | Prototype | Wrap a single hardcoded binary; tab completion works |
 | 2 | Library API | `cobrashell.New(Config)` + `Run()` published |
-| 3 | Embedded mode | `NewEmbedded` with `*cobra.Command` tree |
-| 4 | `--help` fallback | Graceful degradation for non-Cobra binaries |
-| 5 | Standalone binary | `cobra-shell --binary <path>` |
-| 6 | `Command()` helper | One-liner `shell` subcommand for Cobra CLIs |
+| 3 | `--help` fallback | Graceful degradation for non-Cobra binaries |
+| 4 | Standalone binary | `cobra-shell --binary <path>` |
+| 5 | `Command()` helper | One-liner `shell` subcommand for Cobra CLIs |
+| 6 | Embedded mode | `NewEmbedded` with `*cobra.Command` tree |
 
 ---
 
@@ -258,4 +290,4 @@ This embedded mode is how `go-cs-metrics`'s current shell works; the library wou
 - `ShellCompDirective` constants: `github.com/spf13/cobra/completions.go`
 - `github.com/chzyer/readline` — readline with completion callbacks
 - `github.com/google/shlex` — POSIX-ish tokenizer
-- `github.com/creack/pty` — PTY allocation if needed
+- `github.com/creack/pty` — PTY allocation (post-v1)
