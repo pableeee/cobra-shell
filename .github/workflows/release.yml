@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          GOOS=linux   GOARCH=amd64  go build -o dist/cobra-shell-linux-amd64   ./cmd/cobra-shell
+          GOOS=linux   GOARCH=arm64  go build -o dist/cobra-shell-linux-arm64   ./cmd/cobra-shell
+          GOOS=darwin  GOARCH=amd64  go build -o dist/cobra-shell-darwin-amd64  ./cmd/cobra-shell
+          GOOS=darwin  GOARCH=arm64  go build -o dist/cobra-shell-darwin-arm64  ./cmd/cobra-shell
+
+      - name: Update latest release
+        run: |
+          gh release delete latest --yes || true
+          git tag -f latest
+          git push -f origin latest
+          gh release create latest dist/* \
+            --title "latest (master@$(git rev-parse --short HEAD))" \
+            --notes "Automated build from [\`$(git rev-parse --short HEAD)\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})." \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
