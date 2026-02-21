@@ -1,7 +1,7 @@
 # ADR-003: No PTY Allocation in v1
 
 **Date:** 2026-02-21
-**Status:** Accepted
+**Status:** Superseded by [ADR-007](007-pty.md)
 
 ## Context
 

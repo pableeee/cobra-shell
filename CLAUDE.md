@@ -11,22 +11,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-make build          # build standalone binary → bin/cobra-shell
-make test           # run all tests
-make test-verbose   # run all tests with -v
+make build               # build standalone binary → bin/cobra-shell
+make test                # run all tests (unit + integration)
+make test-verbose        # run all tests with -v
 make test-run RUN=TestParseHelp  # run a single test by name
-make vet            # go vet
-make lint           # golangci-lint (must be installed separately)
-make install        # go install the standalone binary
-make clean          # remove bin/
+make test-race           # run all tests with race detector
+make vet                 # go vet
+make lint                # golangci-lint (must be installed separately)
+make install             # go install the standalone binary
+make clean               # remove bin/
 ```
+
+CI runs `go vet ./...` + `go test -race -count=1 ./...` + `go build ./...` on every push/PR via `.github/workflows/ci.yml`.
 
 ## Architecture
 
 Two operating modes are planned:
 
 ### 1. Subprocess mode (primary)
-Wraps an external binary as a black box. On each tab press, the `Completer` calls `binary __completeNoDesc <tokens>` and parses the output. On enter, the `Executor` runs `binary <tokens>` with inherited stdin/stdout/stderr. Empty input is a no-op. Ctrl-C sends SIGINT to the child only; Ctrl-D exits the shell.
+Wraps an external binary as a black box. On each tab press, the `Completer` calls `binary __completeNoDesc <tokens>` and parses the output (plain subprocess, no PTY). On enter, `spawnCommand` allocates a PTY when stdin is a real terminal (`term.IsTerminal`): the parent goes into raw mode and copies bytes bidirectionally; the PTY slave's line discipline delivers Ctrl-C as SIGINT to the subprocess. Falls back to plain exec (with parent SIGINT suppression) when stdin is not a terminal or PTY creation fails. Empty input is a no-op. Ctrl-D exits the shell.
 
 ### 2. Embedded mode (`NewEmbedded`)
 Operates in-process by accepting a `*cobra.Command` tree directly. Allows shared memory state (DB handles, caches) and dynamic completions sourced from live data. Completion walks the tree via `cobra.Command.Traverse`; calls `ValidArgsFunction` and `DynamicCompletions`. Flags are reset to defaults via `resetCommandTree` before each `Execute()` call.

@@ -376,32 +376,21 @@ Not all Cobra binaries register dynamic completions. The shell degrades graceful
 
 ## Color output
 
-Some binaries disable color when stdout is not detected as a TTY. Pass the
-binary-specific override via `Config.Env`:
+cobra-shell allocates a PTY for each subprocess, so binaries see a real TTY
+and enable color automatically. No `FORCE_COLOR` override is needed for most
+tools.
+
+If a binary checks a non-standard variable, you can still pass it via
+`Config.Env`:
 
 ```go
-sh := cobrashell.New(cobrashell.Config{
-    BinaryPath: "kubectl",
-    Prompt:     "k8s> ",
-    Env:        []string{"FORCE_COLOR=1"},
-})
+Env: []string{"KUBECOLOR_FORCE_COLORS=true"},
 ```
 
-Common overrides:
+## Known limitations
 
-| Binary | Variable |
-|--------|----------|
-| Most tools | `FORCE_COLOR=1` |
-| kubectl / helm | `KUBECOLOR_FORCE_COLORS=true` |
-| gh | `GH_FORCE_TTY=true` |
-
-PTY allocation is deferred to a future release (see [ADR-003](adr/003-no-pty-v1.md)).
-
-## Known limitations (v1)
-
-- **Unix only.** `chzyer/readline` and Unix signal semantics are not portable to Windows.
+- **Unix only.** PTY allocation, `chzyer/readline`, and Unix signal semantics are not portable to Windows.
 - **No pipes.** `list | grep foo` is not supported; the input is passed verbatim to the binary.
-- **No PTY.** Interactive subcommands (`vim`, `less`, `ssh`) do not work correctly.
 - **No aliasing or multi-line input.**
 
 ## Architecture
@@ -411,13 +400,15 @@ See [DESIGN.md](DESIGN.md) for the full design rationale and [adr/](adr/) for ar
 ```
 Tab press → Completer.Do()
               → shlex.Split(line[:cursor])
-              → binary __completeNoDesc contextArgs... toComplete
+              → binary __completeNoDesc contextArgs... toComplete  [plain subprocess, no PTY]
               → parseCompletions() → candidates → readline
 
 Enter → Shell.execute()
           → shlex.Split(line)
           → handleEnvBuiltin() (if EnvBuiltin configured)
           → BeforeExec hook
-          → exec.Command(binary, tokens...)  [SIGINT suppressed in parent]
+          → spawnCommand(binary, tokens, env)
+              ├── stdin is TTY → pty.Start() → runWithPTY  [MakeRaw + bidirectional copy]
+              └── stdin not TTY / PTY fail → runPlain       [SIGINT suppressed in parent]
           → AfterExec hook
 ```

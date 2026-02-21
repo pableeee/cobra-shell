@@ -1,4 +1,4 @@
-.PHONY: build test vet lint clean install
+.PHONY: build test test-verbose test-run test-race vet lint clean install
 
 BINARY     := cobra-shell
 BUILD_DIR  := bin
@@ -15,6 +15,9 @@ test-verbose:
 
 test-run:
 	go test -v -run $(RUN) ./...
+
+test-race:
+	go test -race ./...
 
 vet:
 	go vet ./...

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -147,28 +146,9 @@ func (s *Shell) execute(line string) {
 		}
 	}
 
-	cmd := exec.Command(s.binary, tokens...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = s.buildEnv()
-
-	// Suppress SIGINT in this process while the child runs. The terminal
-	// delivers SIGINT to the entire foreground process group, so the child
-	// still receives it and can handle (or be killed by) it normally.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
-	defer signal.Stop(sig)
-
-	exitCode := 0
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			// Process failed to start (binary disappeared, permission denied, etc.)
-			fmt.Fprintf(os.Stderr, "cobra-shell: %v\n", err)
-		}
+	exitCode, err := spawnCommand(s.binary, tokens, s.buildEnv())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cobra-shell: %v\n", err)
 	}
 
 	if s.cfg.Hooks.AfterExec != nil {
