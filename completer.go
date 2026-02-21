@@ -66,11 +66,16 @@ func (c *completer) Do(line []rune, pos int) (newLine [][]rune, length int) {
 		return nil, 0
 	}
 
+	// readline's AutoCompleter contract: newLine entries must be suffixes —
+	// the part after the already-typed text — because readline appends them
+	// verbatim (buf.WriteRunes). Returning full words causes doubling, e.g.
+	// typing "pl" + Tab would produce "plplayer" instead of "player".
+	prefix := []rune(toComplete)
 	result := make([][]rune, len(candidates))
 	for i, s := range candidates {
-		result[i] = []rune(s)
+		result[i] = []rune(s)[len(prefix):]
 	}
-	return result, len([]rune(toComplete))
+	return result, len(prefix)
 }
 
 // complete tries __completeNoDesc first. If the binary does not support it
@@ -177,9 +182,10 @@ func (c *completer) doEnvBuiltin(subArgs []string, toComplete string) (newLine [
 	if len(candidates) == 0 {
 		return nil, 0
 	}
+	prefix := []rune(toComplete)
 	result := make([][]rune, len(candidates))
 	for i, s := range candidates {
-		result[i] = []rune(s)
+		result[i] = []rune(s)[len(prefix):]
 	}
-	return result, len([]rune(toComplete))
+	return result, len(prefix)
 }

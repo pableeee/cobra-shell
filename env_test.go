@@ -230,8 +230,9 @@ func TestDoEnvBuiltin_AllSubcommands(t *testing.T) {
 func TestDoEnvBuiltin_SubcommandPrefix(t *testing.T) {
 	c := makeEnvCompleter("env")
 	got, _ := c.doEnvBuiltin(nil, "s")
-	if len(got) != 1 || string(got[0]) != "set" {
-		t.Errorf("expected [set] for prefix 's', got %v", got)
+	// doEnvBuiltin returns suffixes: "set"[1:] = "et"
+	if len(got) != 1 || string(got[0]) != "et" {
+		t.Errorf("expected suffix [et] for prefix 's', got %v", got)
 	}
 }
 
@@ -254,8 +255,9 @@ func TestDoEnvBuiltin_UnsetAllKeys(t *testing.T) {
 func TestDoEnvBuiltin_UnsetKeyPrefix(t *testing.T) {
 	c := makeEnvCompleter("env")
 	got, _ := c.doEnvBuiltin([]string{"unset"}, "A")
-	if len(got) != 1 || string(got[0]) != "ALPHA" {
-		t.Errorf("expected [ALPHA] for prefix 'A', got %v", got)
+	// doEnvBuiltin returns suffixes: "ALPHA"[1:] = "LPHA"
+	if len(got) != 1 || string(got[0]) != "LPHA" {
+		t.Errorf("expected suffix [LPHA] for prefix 'A', got %v", got)
 	}
 }
 

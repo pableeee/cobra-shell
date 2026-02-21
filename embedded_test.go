@@ -191,6 +191,60 @@ func TestEmbeddedCompleter_DynamicCompletions(t *testing.T) {
 	}
 }
 
+// TestEmbeddedCompleter_Do_ReturnsSuffix guards against the readline contract:
+// Do() must return suffixes (the part after the typed prefix), because readline
+// calls buf.WriteRunes(candidate) which appends without removing anything.
+// Returning full words causes doubling: typing "se" + Tab would give "seserve".
+func TestEmbeddedCompleter_Do_ReturnsSuffix(t *testing.T) {
+	sh := NewEmbedded(EmbeddedConfig{RootCmd: newTestRoot()})
+	c := &embeddedCompleter{shell: sh}
+
+	line := []rune("se")
+	candidates, length := c.Do(line, len(line))
+
+	if length != 2 {
+		t.Errorf("length = %d, want 2 (len of 'se')", length)
+	}
+	if len(candidates) == 0 {
+		t.Fatal("expected candidates, got none")
+	}
+	for _, cand := range candidates {
+		if string(cand) == "serve" {
+			t.Errorf("Do returned full word %q; want suffix %q", "serve", "rve")
+		}
+	}
+	found := false
+	for _, cand := range candidates {
+		if string(cand) == "rve" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("suffix 'rve' not found in candidates %v", candidates)
+	}
+}
+
+func TestEmbeddedCompleter_Do_EmptyPrefix_ReturnsFullWord(t *testing.T) {
+	// When toComplete is empty (user tabbed after a space), the suffix equals
+	// the full word — verify no rune-slicing panic or truncation.
+	sh := NewEmbedded(EmbeddedConfig{RootCmd: newTestRoot()})
+	c := &embeddedCompleter{shell: sh}
+
+	line := []rune("")
+	candidates, length := c.Do(line, 0)
+
+	if length != 0 {
+		t.Errorf("length = %d, want 0 for empty prefix", length)
+	}
+	names := make(map[string]bool)
+	for _, cand := range candidates {
+		names[string(cand)] = true
+	}
+	if !names["serve"] || !names["version"] {
+		t.Errorf("expected full names when prefix is empty, got %v", candidates)
+	}
+}
+
 func TestEmbeddedCompleter_ValidArgsFunction(t *testing.T) {
 	root := &cobra.Command{Use: "myapp"}
 	sub := &cobra.Command{

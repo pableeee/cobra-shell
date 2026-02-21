@@ -112,6 +112,36 @@ func TestIntegration_TryComplete_Flags(t *testing.T) {
 	}
 }
 
+func TestIntegration_CompleterDo_ReturnsSuffix(t *testing.T) {
+	if testBinary == "" {
+		t.Skip("testbin not compiled")
+	}
+	// Regression test: Do() must return suffixes so readline does not double
+	// the already-typed prefix. Typing "gr" + Tab should complete to "greet",
+	// not "grgreet".
+	c := &completer{shell: newIntegrationShell()}
+	line := []rune("gr")
+	candidates, length := c.Do(line, len(line))
+
+	if length != 2 {
+		t.Errorf("length = %d, want 2 (len of 'gr')", length)
+	}
+	for _, cand := range candidates {
+		if string(cand) == "greet" {
+			t.Errorf("Do returned full word %q; want suffix %q", "greet", "eet")
+		}
+	}
+	found := false
+	for _, cand := range candidates {
+		if string(cand) == "eet" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("suffix 'eet' not found in candidates %v", candidates)
+	}
+}
+
 func TestIntegration_TryComplete_NoMatch(t *testing.T) {
 	if testBinary == "" {
 		t.Skip("testbin not compiled")

@@ -44,11 +44,12 @@ func (c *embeddedCompleter) Do(line []rune, pos int) (newLine [][]rune, length i
 		return nil, 0
 	}
 
+	prefix := []rune(toComplete)
 	result := make([][]rune, len(candidates))
 	for i, s := range candidates {
-		result[i] = []rune(s)
+		result[i] = []rune(s)[len(prefix):]
 	}
-	return result, len([]rune(toComplete))
+	return result, len(prefix)
 }
 
 // complete resolves the command addressed by contextArgs, then collects
