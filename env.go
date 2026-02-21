@@ -59,32 +59,71 @@ func (s *Shell) buildEnv() []string {
 //
 // Supported subcommands: list, set KEY VALUE, unset KEY.
 func (s *Shell) handleEnvBuiltin(tokens []string) bool {
-	if s.cfg.EnvBuiltin == "" || tokens[0] != s.cfg.EnvBuiltin {
+	name := s.cfg.EnvBuiltin
+	if name == "" || tokens[0] != name {
 		return false
 	}
-	if len(tokens) < 2 {
-		writeErr("usage: %s {list|set KEY VALUE|unset KEY}\n", s.cfg.EnvBuiltin)
+
+	// No subcommand or top-level --help / -h.
+	if len(tokens) < 2 || tokens[1] == "--help" || tokens[1] == "-h" {
+		fmt.Printf("Manage session-scoped environment variables.\n\n"+
+			"Usage:\n  %s [command]\n\n"+
+			"Available Commands:\n"+
+			"  list        List all session environment variables\n"+
+			"  set         Set a session environment variable\n"+
+			"  unset       Remove a session environment variable\n\n"+
+			"Use \"%s [command] --help\" for more information about a command.\n",
+			name, name)
 		return true
 	}
-	switch tokens[1] {
+
+	sub := tokens[1]
+	rest := tokens[2:]
+
+	// Check for --help / -h on subcommands before dispatching.
+	wantsHelp := len(rest) > 0 && (rest[0] == "--help" || rest[0] == "-h")
+
+	switch sub {
 	case "list":
+		if wantsHelp {
+			fmt.Printf("List all session environment variables.\n\n"+
+				"Usage:\n  %s list\n", name)
+			return true
+		}
 		for _, pair := range s.SessionEnv() {
 			fmt.Println(pair)
 		}
+
 	case "set":
+		if wantsHelp {
+			fmt.Printf("Set a session environment variable.\n"+
+				"The value takes effect on the next command execution.\n\n"+
+				"Usage:\n  %s set KEY VALUE\n", name)
+			return true
+		}
 		if len(tokens) != 4 {
-			writeErr("usage: %s set KEY VALUE\n", s.cfg.EnvBuiltin)
+			writeErr("Error: accepts 2 args, received %d\n\nUsage:\n  %s set KEY VALUE\n",
+				len(rest), name)
 			return true
 		}
 		s.SetEnv(tokens[2], tokens[3])
+
 	case "unset":
+		if wantsHelp {
+			fmt.Printf("Remove a session environment variable.\n\n"+
+				"Usage:\n  %s unset KEY\n", name)
+			return true
+		}
 		if len(tokens) != 3 {
-			writeErr("usage: %s unset KEY\n", s.cfg.EnvBuiltin)
+			writeErr("Error: accepts 1 arg, received %d\n\nUsage:\n  %s unset KEY\n",
+				len(rest), name)
 			return true
 		}
 		s.UnsetEnv(tokens[2])
+
 	default:
-		writeErr("cobra-shell: %s: unknown subcommand %q\n", s.cfg.EnvBuiltin, tokens[1])
+		writeErr("Error: unknown command %q for %q\nRun '%s --help' for usage.\n",
+			sub, name, name)
 	}
 	return true
 }
