@@ -11,11 +11,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-go build ./...          # build
-go test ./...           # run all tests
-go test ./... -run TestName  # run a single test
-go vet ./...            # static analysis
-go build -o cobra-shell ./cmd/cobra-shell  # build the standalone binary
+make build          # build standalone binary → bin/cobra-shell
+make test           # run all tests
+make test-verbose   # run all tests with -v
+make test-run RUN=TestParseHelp  # run a single test by name
+make vet            # go vet
+make lint           # golangci-lint (must be installed separately)
+make install        # go install the standalone binary
+make clean          # remove bin/
 ```
 
 ## Architecture

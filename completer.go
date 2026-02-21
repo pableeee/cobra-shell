@@ -69,11 +69,20 @@ func (c *completer) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	return result, len([]rune(toComplete))
 }
 
-// complete invokes `binary __completeNoDesc contextArgs... toComplete` under
-// Config.CompletionTimeout and parses the output. Errors (timeout, non-zero
-// exit, etc.) are silently swallowed — completion failures should never
-// interrupt the user's workflow.
+// complete tries __completeNoDesc first. If the binary does not support it
+// (non-zero exit), it falls back to --help parsing via helpFallback.
 func (c *completer) complete(contextArgs []string, toComplete string) ([]string, int) {
+	candidates, directive, ok := c.tryComplete(contextArgs, toComplete)
+	if ok {
+		return candidates, directive
+	}
+	return c.helpFallback(contextArgs, toComplete)
+}
+
+// tryComplete invokes __completeNoDesc and parses the result.
+// ok is false when the binary exits non-zero, indicating it does not support
+// __completeNoDesc; in that case the caller should try the --help fallback.
+func (c *completer) tryComplete(contextArgs []string, toComplete string) (candidates []string, directive int, ok bool) {
 	args := make([]string, 0, 1+len(contextArgs)+1)
 	args = append(args, "__completeNoDesc")
 	args = append(args, contextArgs...)
@@ -84,16 +93,18 @@ func (c *completer) complete(contextArgs []string, toComplete string) ([]string,
 
 	cmd := exec.CommandContext(ctx, c.shell.binary, args...)
 	cmd.Env = append(os.Environ(), c.shell.cfg.Env...)
-	cmd.Stderr = io.Discard // suppress noise from the completion subprocess
+	cmd.Stderr = io.Discard
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 
 	if err := cmd.Run(); err != nil {
-		return nil, 0
+		// Non-zero exit: binary does not support __completeNoDesc.
+		return nil, 0, false
 	}
 
-	return parseCompletions(buf.String())
+	candidates, directive = parseCompletions(buf.String())
+	return candidates, directive, true
 }
 
 // parseCompletions parses the stdout of a __completeNoDesc invocation.
