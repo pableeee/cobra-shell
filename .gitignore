@@ -1,0 +1,6 @@
+# Binaries
+cobra-shell
+*.exe
+
+# Go
+/vendor/
