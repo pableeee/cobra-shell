@@ -1,5 +1,6 @@
 # Binaries
-cobra-shell
+/bin/
+/cobra-shell
 *.exe
 
 # Go
