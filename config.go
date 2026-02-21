@@ -60,6 +60,22 @@ type Config struct {
 	// Defaults to "" (disabled).
 	EnvBuiltin string
 
+	// DynamicPrompt, when non-nil, is called after each command completes to
+	// produce the prompt for the next input line. The argument is the exit
+	// code of the most recently executed command (0 on success). When set,
+	// DynamicPrompt overrides the static Prompt field entirely.
+	//
+	// Use [Colorize] with the Color* constants to embed ANSI colors safely:
+	//
+	//	DynamicPrompt: func(code int) string {
+	//	    c := cobrashell.ColorGreen
+	//	    if code != 0 {
+	//	        c = cobrashell.ColorRed
+	//	    }
+	//	    return cobrashell.Colorize("› ", c)
+	//	},
+	DynamicPrompt func(lastExitCode int) string
+
 	// Hooks contains optional lifecycle callbacks. All fields are optional;
 	// nil hooks are silently skipped.
 	Hooks Hooks

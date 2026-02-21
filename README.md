@@ -352,6 +352,7 @@ pairs := sh.SessionEnv()     // sorted ["KEY=VALUE", ...] snapshot
 | `Env` | `[]string` | `nil` | Static extra environment variables (`"KEY=VALUE"`), additive to the current environment. Applied before session env. |
 | `CompletionTimeout` | `time.Duration` | `500ms` | Maximum time to wait for `__completeNoDesc`. Increase for network-backed binaries. |
 | `EnvBuiltin` | `string` | `""` | When non-empty, enables the built-in env management command with this name. |
+| `DynamicPrompt` | `func(int) string` | `nil` | When set, called after each command with its exit code to produce the next prompt. Overrides `Prompt`. Use `Colorize` for ANSI colors. |
 | `Hooks` | `Hooks` | — | Lifecycle callbacks; all fields optional. |
 
 ## Keyboard shortcuts
@@ -373,6 +374,42 @@ Not all Cobra binaries register dynamic completions. The shell degrades graceful
 | Full `__completeNoDesc` (Cobra ≥ 1.2) | Full dynamic completion |
 | Partial (subcommands and flag names only) | Subcommand + flag name completion |
 | No `__completeNoDesc` (old or non-Cobra) | History only |
+
+## Colored prompt
+
+Use `DynamicPrompt` to change the prompt after every command based on the
+previous exit code. The helper `Colorize` wraps text with ANSI codes in a way
+that is safe for readline (cursor positioning stays correct):
+
+```go
+sh := cobrashell.New(cobrashell.Config{
+    BinaryPath: "/usr/local/bin/kubectl",
+    DynamicPrompt: func(code int) string {
+        c := cobrashell.ColorGreen
+        if code != 0 {
+            c = cobrashell.ColorRed
+        }
+        return cobrashell.Colorize("k8s> ", c)
+    },
+})
+```
+
+Session transcript (colors shown as text here):
+
+```
+[green]k8s> [/green]get pods
+NAME                   READY   STATUS    RESTARTS
+coredns-5d78c9869d     1/1     Running   0
+[green]k8s> [/green]delete pod nonexistent
+Error from server (NotFound): pod "nonexistent" not found
+[red]k8s> [/red]get pods
+```
+
+Available color constants: `ColorRed`, `ColorGreen`, `ColorYellow`,
+`ColorBlue`, `ColorMagenta`, `ColorCyan`, `ColorBold`, `ColorReset`.
+
+cobra-shell also colors its own error messages (parse errors, BeforeExec
+rejections, spawn failures) in red when stderr is a terminal.
 
 ## Color output
 

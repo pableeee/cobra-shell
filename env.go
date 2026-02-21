@@ -63,7 +63,7 @@ func (s *Shell) handleEnvBuiltin(tokens []string) bool {
 		return false
 	}
 	if len(tokens) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: %s {list|set KEY VALUE|unset KEY}\n", s.cfg.EnvBuiltin)
+		writeErr("usage: %s {list|set KEY VALUE|unset KEY}\n", s.cfg.EnvBuiltin)
 		return true
 	}
 	switch tokens[1] {
@@ -73,18 +73,18 @@ func (s *Shell) handleEnvBuiltin(tokens []string) bool {
 		}
 	case "set":
 		if len(tokens) != 4 {
-			fmt.Fprintf(os.Stderr, "usage: %s set KEY VALUE\n", s.cfg.EnvBuiltin)
+			writeErr("usage: %s set KEY VALUE\n", s.cfg.EnvBuiltin)
 			return true
 		}
 		s.SetEnv(tokens[2], tokens[3])
 	case "unset":
 		if len(tokens) != 3 {
-			fmt.Fprintf(os.Stderr, "usage: %s unset KEY\n", s.cfg.EnvBuiltin)
+			writeErr("usage: %s unset KEY\n", s.cfg.EnvBuiltin)
 			return true
 		}
 		s.UnsetEnv(tokens[2])
 	default:
-		fmt.Fprintf(os.Stderr, "cobra-shell: %s: unknown subcommand %q\n", s.cfg.EnvBuiltin, tokens[1])
+		writeErr("cobra-shell: %s: unknown subcommand %q\n", s.cfg.EnvBuiltin, tokens[1])
 	}
 	return true
 }

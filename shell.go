@@ -22,10 +22,11 @@ const (
 // Shell wraps a Cobra binary in an interactive readline loop. Create one with
 // [New] and start it with [Run].
 type Shell struct {
-	cfg        Config
-	binary     string            // resolved absolute path; empty when initErr is set
-	initErr    error             // deferred error from New, returned by Run
-	sessionEnv map[string]string // runtime env overrides; set via SetEnv/UnsetEnv
+	cfg          Config
+	binary       string            // resolved absolute path; empty when initErr is set
+	initErr      error             // deferred error from New, returned by Run
+	sessionEnv   map[string]string // runtime env overrides; set via SetEnv/UnsetEnv
+	lastExitCode int               // exit code of the most recently executed command
 }
 
 // New creates a Shell from cfg. BinaryPath is resolved to an absolute path
@@ -72,8 +73,13 @@ func (s *Shell) Run() error {
 		return s.initErr
 	}
 
+	initialPrompt := s.cfg.Prompt
+	if s.cfg.DynamicPrompt != nil {
+		initialPrompt = s.cfg.DynamicPrompt(0)
+	}
+
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          s.cfg.Prompt,
+		Prompt:          initialPrompt,
 		HistoryFile:     s.cfg.HistoryFile,
 		AutoComplete:    &completer{shell: s},
 		InterruptPrompt: "",
@@ -112,6 +118,9 @@ func (s *Shell) Run() error {
 		}
 
 		s.execute(line)
+		if s.cfg.DynamicPrompt != nil {
+			rl.SetPrompt(s.cfg.DynamicPrompt(s.lastExitCode))
+		}
 	}
 
 	if s.cfg.Hooks.OnExit != nil {
@@ -126,7 +135,7 @@ func (s *Shell) Run() error {
 func (s *Shell) execute(line string) {
 	tokens, err := shlex.Split(line)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cobra-shell: parse error: %v\n", err)
+		writeErr("cobra-shell: parse error: %v\n", err)
 		return
 	}
 	if len(tokens) == 0 {
@@ -141,15 +150,16 @@ func (s *Shell) execute(line string) {
 
 	if s.cfg.Hooks.BeforeExec != nil {
 		if err := s.cfg.Hooks.BeforeExec(tokens); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			writeErr("%v\n", err)
 			return
 		}
 	}
 
 	exitCode, err := spawnCommand(s.binary, tokens, s.buildEnv())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cobra-shell: %v\n", err)
+		writeErr("cobra-shell: %v\n", err)
 	}
+	s.lastExitCode = exitCode
 
 	if s.cfg.Hooks.AfterExec != nil {
 		s.cfg.Hooks.AfterExec(tokens, exitCode)

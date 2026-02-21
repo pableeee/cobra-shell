@@ -47,6 +47,14 @@ type EmbeddedConfig struct {
 	// records, cache keys). It is called in addition to the command's own
 	// ValidArgsFunction and static subcommand/flag enumeration.
 	DynamicCompletions map[string]CompletionFunc
+
+	// DynamicPrompt, when non-nil, is called after each command completes to
+	// produce the prompt for the next input line. The argument is the exit
+	// code of the most recently executed command (0 on success). When set,
+	// DynamicPrompt overrides the static Prompt field entirely.
+	//
+	// Use [Colorize] with the Color* constants to embed ANSI colors safely.
+	DynamicPrompt func(lastExitCode int) string
 }
 
 // EmbeddedHooks contains optional lifecycle callbacks for an [EmbeddedShell].
@@ -83,8 +91,9 @@ type EmbeddedHooks struct {
 // walking the command tree and calling ValidArgsFunction rather than by
 // spawning a __completeNoDesc subprocess.
 type EmbeddedShell struct {
-	cfg     EmbeddedConfig
-	initErr error
+	cfg          EmbeddedConfig
+	initErr      error
+	lastExitCode int
 }
 
 // NewEmbedded creates an EmbeddedShell from cfg. If cfg.RootCmd is nil the
@@ -129,8 +138,13 @@ func (s *EmbeddedShell) Run() error {
 		return s.initErr
 	}
 
+	initialPrompt := s.cfg.Prompt
+	if s.cfg.DynamicPrompt != nil {
+		initialPrompt = s.cfg.DynamicPrompt(0)
+	}
+
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          s.cfg.Prompt,
+		Prompt:          initialPrompt,
 		HistoryFile:     s.cfg.HistoryFile,
 		AutoComplete:    &embeddedCompleter{shell: s},
 		InterruptPrompt: "",
@@ -166,6 +180,9 @@ func (s *EmbeddedShell) Run() error {
 		}
 
 		s.execute(line)
+		if s.cfg.DynamicPrompt != nil {
+			rl.SetPrompt(s.cfg.DynamicPrompt(s.lastExitCode))
+		}
 	}
 
 	if s.cfg.Hooks.OnExit != nil {
@@ -179,7 +196,7 @@ func (s *EmbeddedShell) Run() error {
 func (s *EmbeddedShell) execute(line string) {
 	tokens, err := shlex.Split(line)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cobra-shell: parse error: %v\n", err)
+		writeErr("cobra-shell: parse error: %v\n", err)
 		return
 	}
 	if len(tokens) == 0 {
@@ -188,7 +205,7 @@ func (s *EmbeddedShell) execute(line string) {
 
 	if s.cfg.Hooks.BeforeExec != nil {
 		if err := s.cfg.Hooks.BeforeExec(tokens); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			writeErr("%v\n", err)
 			return
 		}
 	}
@@ -202,13 +219,13 @@ func (s *EmbeddedShell) execute(line string) {
 	s.cfg.RootCmd.SetErr(os.Stderr)
 	s.cfg.RootCmd.SetIn(os.Stdin)
 
-	exitCode := 0
+	s.lastExitCode = 0
 	if err := s.cfg.RootCmd.Execute(); err != nil {
-		exitCode = 1
+		s.lastExitCode = 1
 	}
 
 	if s.cfg.Hooks.AfterExec != nil {
-		s.cfg.Hooks.AfterExec(tokens, exitCode)
+		s.cfg.Hooks.AfterExec(tokens, s.lastExitCode)
 	}
 }
 

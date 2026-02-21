@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `cobra-shell` (module `github.com/pable/cobra-shell`) is a Go library that wraps any Cobra CLI binary in an interactive REPL shell. The key insight: every Cobra binary automatically has a hidden `__complete` command that returns tab completions; this library uses that to drive a fully functional interactive shell without requiring changes to the target binary.
 
-**Current status:** Design phase — `go.mod` and `DESIGN.md` exist, no source files yet. See `DESIGN.md` for the full spec.
+**Current status:** Fully implemented. See `DESIGN.md` for the rationale and `adr/` for architectural decision records.
 
 ## Commands
 
@@ -36,10 +36,10 @@ Operates in-process by accepting a `*cobra.Command` tree directly. Allows shared
 
 ### Core types
 
-- **`Config`** — `BinaryPath` (resolved to abs path at `New()`), `Prompt`, `HistoryFile` (default `~/.{basename}_history`), `Env` (additive to inherited env), `EnvBuiltin` (opt-in env built-in name, default `""`), `Hooks`
-- **`Shell`** — holds the readline instance, Completer, Executor, History, and `sessionEnv map[string]string`
+- **`Config`** — `BinaryPath` (resolved to abs path at `New()`), `Prompt`, `HistoryFile` (default `~/.{basename}_history`), `Env` (additive to inherited env), `EnvBuiltin` (opt-in env built-in name, default `""`), `DynamicPrompt func(lastExitCode int) string` (when set, overrides `Prompt`; called after each command; use `Colorize()` for ANSI colors), `Hooks`
+- **`Shell`** — holds the readline instance, Completer, Executor, History, `sessionEnv map[string]string`, and `lastExitCode int`
 - **`Hooks`** — `BeforeExec func([]string) error` (non-nil cancels + prints reason), `AfterExec`, `OnStart`, `OnExit`
-- **`EmbeddedConfig`** — `RootCmd *cobra.Command`, `Prompt`, `DynamicCompletions map[string]CompletionFunc`, `Hooks EmbeddedHooks`
+- **`EmbeddedConfig`** — `RootCmd *cobra.Command`, `Prompt`, `DynamicPrompt func(lastExitCode int) string`, `DynamicCompletions map[string]CompletionFunc`, `Hooks EmbeddedHooks`
 - **`EmbeddedHooks`** — same shape as `Hooks` but `OnStart func(*EmbeddedShell)`; separate type because the two shell types are not interchangeable
 - **`CompletionFunc`** — `func(args []string, toComplete string) []string`, mirrors Cobra's `ValidArgsFunction`
 - **`resetCommandTree`** — walks the command tree resetting all `pflag.Flag` values to `DefValue` and clearing `Changed`; called before each embedded `Execute()`
@@ -62,14 +62,19 @@ Output: one completion per line, then a directive line `:N`. `ShellCompDirective
 
 The library degrades gracefully: full `__complete` → partial (subcommands/flags only) → `--help` heuristic parsing → readline with history only.
 
-## Planned Dependencies
+## Dependencies
 
 - `github.com/chzyer/readline` — readline with completion callbacks
-- `github.com/google/shlex` — POSIX-ish token splitting (or a minimal custom parser)
-- `github.com/creack/pty` — PTY allocation for color output (optional, adds complexity)
-- `github.com/spf13/cobra` — for embedded mode
+- `github.com/google/shlex` — POSIX-ish token splitting
+- `github.com/creack/pty` — PTY allocation (subprocess mode)
+- `golang.org/x/term` — `IsTerminal` + `MakeRaw` for PTY and colored stderr detection
+- `github.com/spf13/cobra` + `pflag` — embedded mode
 
-## Public API Surface (from design)
+### Colors and prompt
+
+`prompt.go` exports `Colorize(text, code string) string` and color constants (`ColorRed`, `ColorGreen`, `ColorYellow`, `ColorBlue`, `ColorMagenta`, `ColorCyan`, `ColorBold`, `ColorReset`). `Colorize` wraps the text in readline's `\x01`/`\x02` ignore markers so cursor positioning stays correct. Internal `writeErr()` prints cobra-shell's own error messages in red when stderr is a terminal.
+
+## Public API Surface
 
 ```go
 // Subprocess mode — Run() returns error on init failure, nil on clean exit
@@ -89,7 +94,7 @@ rootCmd.AddCommand(cobrashell.Command(Config{BinaryPath: os.Args[0]}))
 
 - **Completion timeout:** `Config.CompletionTimeout time.Duration`, default 500 ms. Implemented via `context.WithTimeout` on the `__completeNoDesc` subprocess call.
 - **Token splitting:** `github.com/google/shlex` used in both the Completer and Executor for consistent POSIX quoting semantics.
-- **PTY:** No PTY for v1. Side effects (pager launches, signal complexity, Windows incompatibility) outweigh the color benefit. Workaround: set `FORCE_COLOR=1` or equivalent via `Config.Env`.
+- **PTY:** Implemented (see ADR-007). Auto-detected via `term.IsTerminal`; plain fallback for non-TTY stdin. PTY path puts the parent terminal in raw mode so Ctrl-C flows as byte 0x03 through the PTY slave's line discipline → SIGINT for the subprocess; no `signal.Notify` needed in the parent for the PTY path.
 - **Windows:** Unix-only for v1. `chzyer/readline` and Unix signal semantics are not portable enough to include in scope.
 - **Module path:** `github.com/pable/cobra-shell` (set in `go.mod`).
 - **Out of scope for v1:** pipes between commands, aliasing, multi-line input, PTY for interactive subcommands (e.g. `vim`).
