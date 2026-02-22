@@ -373,7 +373,8 @@ Not all Cobra binaries register dynamic completions. The shell degrades graceful
 |-------------------|-----------------|
 | Full `__completeNoDesc` (Cobra ≥ 1.2) | Full dynamic completion |
 | Partial (subcommands and flag names only) | Subcommand + flag name completion |
-| No `__completeNoDesc` (old or non-Cobra) | History only |
+| No `__completeNoDesc` (old or non-Cobra) | Subcommand and flag name completion via `--help` parsing (flag values not completed) |
+| No `--help` output parseable | History only |
 
 ## Colored prompt
 
