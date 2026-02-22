@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -22,7 +21,7 @@ func (c *completer) helpFallback(contextArgs []string, toComplete string) ([]str
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, c.shell.binary, args...)
-	cmd.Env = append(os.Environ(), c.shell.cfg.Env...)
+	cmd.Env = c.shell.buildEnv()
 	cmd.Stderr = io.Discard
 
 	// Some binaries print help to stdout with exit code 0; others exit non-zero.
