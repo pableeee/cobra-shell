@@ -39,12 +39,22 @@ completion (via __completeNoDesc) and persistent command history.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			p := prompt
+			if p == "" {
+				p = "> "
+			}
 			return cobrashell.New(cobrashell.Config{
 				BinaryPath:        binary,
-				Prompt:            prompt,
 				HistoryFile:       history,
 				CompletionTimeout: timeout,
 				EnvBuiltin:        envBuiltin,
+				DynamicPrompt: func(exitCode int) string {
+					color := cobrashell.ColorGreen
+					if exitCode != 0 {
+						color = cobrashell.ColorRed
+					}
+					return cobrashell.Colorize(p, color)
+				},
 			}).Run()
 		},
 	}
