@@ -277,6 +277,28 @@ func TestDoEnvBuiltin_ListNoCompletion(t *testing.T) {
 	}
 }
 
+// --- isRootHelp ---
+
+func TestIsRootHelp(t *testing.T) {
+	cases := []struct {
+		tokens []string
+		want   bool
+	}{
+		{[]string{"help"}, true},
+		{[]string{"--help"}, true},
+		{[]string{"-h"}, true},
+		{[]string{"help", "greet"}, false},  // subcommand help — not root
+		{[]string{"greet", "--help"}, false}, // flag on subcommand
+		{[]string{"greet"}, false},
+		{nil, false},
+	}
+	for _, tc := range cases {
+		if got := isRootHelp(tc.tokens); got != tc.want {
+			t.Errorf("isRootHelp(%v) = %v, want %v", tc.tokens, got, tc.want)
+		}
+	}
+}
+
 // --- envBuiltinKeys ---
 
 func TestEnvBuiltinKeys(t *testing.T) {

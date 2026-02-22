@@ -166,6 +166,11 @@ func (s *Shell) execute(line string) {
 	}
 	s.lastExitCode = exitCode
 
+	if s.cfg.EnvBuiltin != "" && isRootHelp(tokens) {
+		fmt.Printf("\nShell built-ins:\n  %-12s %s\n", s.cfg.EnvBuiltin,
+			"Manage session-scoped environment variables")
+	}
+
 	if s.cfg.Hooks.AfterExec != nil {
 		s.cfg.Hooks.AfterExec(tokens, exitCode)
 	}
@@ -181,6 +186,13 @@ func hasPipe(tokens []string) bool {
 		}
 	}
 	return false
+}
+
+// isRootHelp reports whether tokens is a root-level help request:
+// bare "help", "--help", or "-h" with no additional arguments.
+// Used to decide whether to append the shell built-ins section to help output.
+func isRootHelp(tokens []string) bool {
+	return len(tokens) == 1 && (tokens[0] == "help" || tokens[0] == "--help" || tokens[0] == "-h")
 }
 
 // leftOfFirstPipe returns the tokens before the first "|".
