@@ -44,6 +44,27 @@ func (c *completer) Do(line []rune, pos int) (newLine [][]rune, length int) {
 		return nil, 0
 	}
 
+	// If the segment contains pipes, complete only the portion after the last
+	// pipe. Completion is attempted against the cobra binary; non-cobra
+	// right-side commands (grep, wc, etc.) will yield no candidates —
+	// graceful degradation.
+	if hasPipe(tokens) {
+		pipeCount := 0
+		for _, t := range tokens {
+			if t == "|" {
+				pipeCount++
+			}
+		}
+		suffix := afterNthPipe(segment, pipeCount)
+		rightTokens, err2 := shlex.Split(suffix)
+		if err2 != nil {
+			return nil, 0
+		}
+		tokens = rightTokens
+		endsWithSpace = len(suffix) > 0 &&
+			(suffix[len(suffix)-1] == ' ' || suffix[len(suffix)-1] == '\t')
+	}
+
 	var contextArgs []string
 	var toComplete string
 
@@ -151,6 +172,27 @@ func parseCompletions(output string) (candidates []string, directive int) {
 
 	// No directive line found — binary may not support __completeNoDesc.
 	return nil, 0
+}
+
+// afterNthPipe returns the raw substring of s after the n-th standalone '|'
+// (one bounded by whitespace or string edges, matching shlex token behaviour).
+// Returns "" if fewer than n standalone pipes are found.
+func afterNthPipe(s string, n int) string {
+	count := 0
+	for i, ch := range s {
+		if ch != '|' {
+			continue
+		}
+		leftOk := i == 0 || s[i-1] == ' ' || s[i-1] == '\t'
+		rightOk := i+1 >= len(s) || s[i+1] == ' ' || s[i+1] == '\t'
+		if leftOk && rightOk {
+			count++
+			if count == n {
+				return s[i+1:]
+			}
+		}
+	}
+	return ""
 }
 
 // doEnvBuiltin provides tab-completion for the session env built-in command.

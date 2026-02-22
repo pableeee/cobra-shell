@@ -148,6 +148,11 @@ func (s *Shell) execute(line string) {
 		return
 	}
 
+	if hasPipe(tokens) {
+		s.executePipeline(line, tokens)
+		return
+	}
+
 	if s.cfg.Hooks.BeforeExec != nil {
 		if err := s.cfg.Hooks.BeforeExec(tokens); err != nil {
 			writeErr("%v\n", err)
@@ -163,6 +168,62 @@ func (s *Shell) execute(line string) {
 
 	if s.cfg.Hooks.AfterExec != nil {
 		s.cfg.Hooks.AfterExec(tokens, exitCode)
+	}
+}
+
+// hasPipe reports whether any token is a standalone "|".
+// shlex produces "|" as its own token only when surrounded by spaces,
+// matching standard shell convention.
+func hasPipe(tokens []string) bool {
+	for _, t := range tokens {
+		if t == "|" {
+			return true
+		}
+	}
+	return false
+}
+
+// leftOfFirstPipe returns the tokens before the first "|".
+// Used to give BeforeExec/AfterExec hooks the cobra-command tokens.
+func leftOfFirstPipe(tokens []string) []string {
+	for i, t := range tokens {
+		if t == "|" {
+			return tokens[:i]
+		}
+	}
+	return tokens
+}
+
+// executePipeline handles lines containing "|" by delegating to sh -c.
+// The raw user line is passed verbatim; the binary path is single-quoted
+// and prepended (s.binary is an absolute path and cannot contain a single-quote).
+// BeforeExec and AfterExec receive only the left-side (cobra) tokens.
+func (s *Shell) executePipeline(line string, tokens []string) {
+	leftTokens := leftOfFirstPipe(tokens)
+
+	if s.cfg.Hooks.BeforeExec != nil {
+		if err := s.cfg.Hooks.BeforeExec(leftTokens); err != nil {
+			writeErr("%v\n", err)
+			return
+		}
+	}
+
+	// Single-quote the binary path so sh treats it as a literal.
+	// s.binary is always an absolute path produced by filepath.Abs or
+	// exec.LookPath, which never yields a path containing a single-quote.
+	script := "'" + s.binary + "' " + line
+
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = s.buildEnv()
+
+	exitCode, err := runPlain(cmd)
+	if err != nil {
+		writeErr("cobra-shell: %v\n", err)
+	}
+	s.lastExitCode = exitCode
+
+	if s.cfg.Hooks.AfterExec != nil {
+		s.cfg.Hooks.AfterExec(leftTokens, exitCode)
 	}
 }
 
