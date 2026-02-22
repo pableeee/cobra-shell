@@ -3,14 +3,17 @@
 An interactive shell for any [Cobra](https://cobra.dev) CLI — with tab completion and persistent history — requiring **zero changes to the target binary**.
 
 ```
-$ cobra-shell --binary kubectl --prompt "k8s> "
-k8s> get po[TAB]
+$ cobra-shell --binary kubectl --prompt "k8s"
+╭─ k8s
+╰─❯ get po[TAB]
 pods  poddisruptionbudgets  podtemplates
-k8s> get pods -n kube-system
+╭─ k8s
+╰─❯ get pods -n kube-system
 NAME                               READY   STATUS    RESTARTS   AGE
 coredns-5d78c9869d-p9f2k           1/1     Running   0          3d
 ...
-k8s> ▌
+╭─ k8s
+╰─❯ ▌
 ```
 
 ## How it works
@@ -38,8 +41,8 @@ go install github.com/pable/cobra-shell/cmd/cobra-shell@latest
 Wrap any Cobra binary by name or path:
 
 ```sh
-cobra-shell --binary kubectl --prompt "k8s> "
-cobra-shell --binary gh --prompt "gh> "
+cobra-shell --binary kubectl --prompt "k8s"
+cobra-shell --binary gh --prompt "gh"
 cobra-shell --binary ./myapp
 ```
 
@@ -47,7 +50,7 @@ All flags:
 
 ```sh
 cobra-shell --binary kubectl \
-            --prompt "k8s> " \
+            --prompt "k8s" \
             --history ~/.kubectl_shell_history \
             --timeout 2s
 ```
@@ -55,16 +58,21 @@ cobra-shell --binary kubectl \
 Session transcript:
 
 ```
-$ cobra-shell --binary gh --prompt "gh> "
-gh> pr li[TAB]
+$ cobra-shell --binary gh --prompt "gh"
+╭─ gh
+╰─❯ pr li[TAB]
 list
-gh> pr list --repo cli/cli
+╭─ gh
+╰─❯ pr list --repo cli/cli
   #1234  Fix tab completion  feature  about 2 hours ago
-gh> repo clone[TAB]
+╭─ gh
+╰─❯ repo clone[TAB]
 clone
-gh> repo clone cli/cli
+╭─ gh
+╰─❯ repo clone cli/cli
 Cloning into 'cli'...
-gh> exit
+╭─ gh
+╰─❯ exit
 $
 ```
 
@@ -348,6 +356,7 @@ pairs := sh.SessionEnv()     // sorted ["KEY=VALUE", ...] snapshot
 |-------|------|---------|-------------|
 | `BinaryPath` | `string` | *(required)* | Path or bare name of the binary to wrap. Resolved to an absolute path by `New`. |
 | `Prompt` | `string` | `"> "` | Prompt string displayed before each input line. |
+| `PrePrompt` | `string` | `""` | When non-empty, printed to stdout before each readline prompt. Use for a context line above the input line (e.g. `"╭─ k8s\n"`). Should end with `"\n"`. |
 | `HistoryFile` | `string` | `~/.<binary>_history` | File for persistent command history. Empty string disables persistence. |
 | `Env` | `[]string` | `nil` | Static extra environment variables (`"KEY=VALUE"`), additive to the current environment. Applied before session env. |
 | `CompletionTimeout` | `time.Duration` | `500ms` | Maximum time to wait for `__completeNoDesc`. Increase for network-backed binaries. |
@@ -378,19 +387,20 @@ Not all Cobra binaries register dynamic completions. The shell degrades graceful
 
 ## Colored prompt
 
-Use `DynamicPrompt` to change the prompt after every command based on the
-previous exit code. The helper `Colorize` wraps text with ANSI codes in a way
-that is safe for readline (cursor positioning stays correct):
+Use `PrePrompt` for a static top line and `DynamicPrompt` for a colored
+indicator that reflects the last exit code. The helper `Colorize` wraps text
+with ANSI codes safely for readline (cursor positioning stays correct):
 
 ```go
 sh := cobrashell.New(cobrashell.Config{
     BinaryPath: "/usr/local/bin/kubectl",
+    PrePrompt:  "╭─ k8s\n",
     DynamicPrompt: func(code int) string {
         c := cobrashell.ColorGreen
         if code != 0 {
             c = cobrashell.ColorRed
         }
-        return cobrashell.Colorize("k8s> ", c)
+        return "╰─" + cobrashell.Colorize("❯", c) + " "
     },
 })
 ```
@@ -398,12 +408,15 @@ sh := cobrashell.New(cobrashell.Config{
 Session transcript (colors shown as text here):
 
 ```
-[green]k8s> [/green]get pods
+╭─ k8s
+[green]╰─❯[/green] get pods
 NAME                   READY   STATUS    RESTARTS
 coredns-5d78c9869d     1/1     Running   0
-[green]k8s> [/green]delete pod nonexistent
+╭─ k8s
+[green]╰─❯[/green] delete pod nonexistent
 Error from server (NotFound): pod "nonexistent" not found
-[red]k8s> [/red]get pods
+╭─ k8s
+[red]╰─❯[/red] get pods
 ```
 
 Available color constants: `ColorRed`, `ColorGreen`, `ColorYellow`,
@@ -428,7 +441,8 @@ Env: []string{"KUBECOLOR_FORCE_COLORS=true"},
 ## Known limitations
 
 - **Unix only.** PTY allocation, `chzyer/readline`, and Unix signal semantics are not portable to Windows.
-- **No pipes.** `list | grep foo` is not supported; the input is passed verbatim to the binary.
+- **Pipes require spaces.** `cmd | grep foo` works; `cmd|grep` (no surrounding spaces) is treated as a literal argument.
+- **Env built-in + pipe.** `env list | grep FOO` — the env built-in is handled in-process before the pipe is evaluated, so grep never runs. Use `env list` separately.
 - **No aliasing or multi-line input.**
 
 ## Architecture
@@ -444,6 +458,7 @@ Tab press → Completer.Do()
 Enter → Shell.execute()
           → shlex.Split(line)
           → handleEnvBuiltin() (if EnvBuiltin configured)
+          → hasPipe() → executePipeline() → sh -c '<binary>' <line>
           → BeforeExec hook
           → spawnCommand(binary, tokens, env)
               ├── stdin is TTY → pty.Start() → runWithPTY  [MakeRaw + bidirectional copy]
