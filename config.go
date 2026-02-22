@@ -32,6 +32,11 @@ type Config struct {
 	// Defaults to "> " if empty.
 	Prompt string
 
+	// PrePrompt, when non-empty, is printed to stdout before each readline
+	// prompt. Use this to display a context line above the input line, for
+	// example a box-drawing top border. The string should end with "\n".
+	PrePrompt string
+
 	// HistoryFile is the path to the file used to persist command history
 	// across sessions. Defaults to ~/.{basename}_history, where basename is
 	// derived from filepath.Base(BinaryPath) with any extension stripped.

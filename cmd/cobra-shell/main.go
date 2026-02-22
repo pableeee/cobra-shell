@@ -39,24 +39,29 @@ completion (via __completeNoDesc) and persistent command history.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			top := "╭─"
+			if prompt != "" {
+				top += " " + prompt
+			}
 			return cobrashell.New(cobrashell.Config{
 				BinaryPath:        binary,
 				HistoryFile:       history,
 				CompletionTimeout: timeout,
 				EnvBuiltin:        envBuiltin,
+				PrePrompt:         top + "\n",
 				DynamicPrompt: func(exitCode int) string {
 					color := cobrashell.ColorGreen
 					if exitCode != 0 {
 						color = cobrashell.ColorRed
 					}
-					return cobrashell.Colorize("❯", color) + " " + prompt
+					return "╰─" + cobrashell.Colorize("❯", color) + " "
 				},
 			}).Run()
 		},
 	}
 
 	root.Flags().StringVarP(&binary, "binary", "b", "", "Path or name of the Cobra binary to wrap (required)")
-	root.Flags().StringVarP(&prompt, "prompt", "p", "", "Optional text appended after the ❯ indicator (e.g. \"k8s \")")
+	root.Flags().StringVarP(&prompt, "prompt", "p", "", "Context label shown on the top line (e.g. \"k8s\")")
 	root.Flags().StringVar(&history, "history", "", "History file path (default: ~/.<binary>_history)")
 	root.Flags().DurationVar(&timeout, "timeout", 500*time.Millisecond, "Tab completion timeout")
 	root.Flags().StringVar(&envBuiltin, "env-builtin", "", `Enable a built-in env command with this name (e.g. "env"). Supports: list, set KEY VALUE, unset KEY`)

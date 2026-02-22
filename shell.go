@@ -95,6 +95,9 @@ func (s *Shell) Run() error {
 	}
 
 	for {
+		if s.cfg.PrePrompt != "" {
+			fmt.Print(s.cfg.PrePrompt)
+		}
 		line, err := rl.Readline()
 		if err == io.EOF {
 			break
