@@ -295,6 +295,39 @@ not bleed into the next.
 Many CLI tools use environment variables for credentials or configuration.
 cobra-shell lets you manage these at the prompt without restarting the shell.
 
+### Standalone binary
+
+Pass `--env-builtin` with the name to use for the built-in command:
+
+```sh
+cobra-shell --binary heroku --prompt "heroku" --env-builtin env
+```
+
+```
+╭─ heroku
+╰─❯ env set HEROKU_API_TOKEN secret123
+╭─ heroku
+╰─❯ env set HEROKU_APP myapp-staging
+╭─ heroku
+╰─❯ env list
+HEROKU_API_TOKEN=secret123
+HEROKU_APP=myapp-staging
+╭─ heroku
+╰─❯ env uns[TAB]
+unset
+╭─ heroku
+╰─❯ env unset HEROKU_[TAB]
+HEROKU_API_TOKEN  HEROKU_APP
+╭─ heroku
+╰─❯ env unset HEROKU_APP
+╭─ heroku
+╰─❯ apps   # HEROKU_API_TOKEN still injected into subprocess env
+=== My Apps
+myapp-production
+```
+
+### Library mode
+
 Enable the built-in by setting `Config.EnvBuiltin`:
 
 ```go
